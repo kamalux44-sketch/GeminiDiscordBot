@@ -1,16 +1,36 @@
 import discord
 from discord.ext import commands
 import google.generativeai as genai
+import requests
 import os
 
 # 環境変数の取得
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 ALLOWED_CHANNEL = int(os.getenv("ALLOWED_CHANNEL"))
 
 # Gemini APIの設定
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Brave Search APIの関数
+def search_brave(query):
+    url = "https://api.search.brave.com/res/v1/web/search"
+    headers = {
+        "Accept": "application/json",
+        "X-Subscription-Token": BRAVE_API_KEY
+    }
+    params = {
+        "q": query,
+        "count": 3
+    }
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        results = response.json().get("web", {}).get("results", [])
+        return [f"{r['title']}: {r['url']}" for r in results]
+    else:
+        return [f"検索エラー: {response.status_code}"]
 
 # Discordボットの設定
 intents = discord.Intents.default()
@@ -25,15 +45,27 @@ async def on_ready():
 async def on_message(message):
     if message.author == bot.user or message.channel.id != ALLOWED_CHANNEL:
         return
-    try:
-        response = model.generate_content(message.content)
-        await message.channel.send(response.text)
-    except Exception as e:
-        await message.channel.send(f"エラーが発生しました: {str(e)}")
+
+    content = message.content.strip()
+
+    if content.startswith("!search "):
+        query = content[len("!search "):]
+        async with message.channel.typing():
+            results = search_brave(query)
+            await message.channel.send("\n".join(results))
+    else:
+        try:
+            async with message.channel.typing():
+                response = model.generate_content(content)
+                await message.channel.send(response.text)
+        except Exception as e:
+            await message.channel.send(f"エラーが発生しました: {str(e)}")
+
     await bot.process_commands(message)
 
-# Botの起動処理を追加
+# Botの起動処理
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         raise ValueError("DISCORD_TOKEN is not set")
     bot.run(DISCORD_TOKEN)
+    
