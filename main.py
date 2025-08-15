@@ -18,7 +18,7 @@ async def query_gemini(message_content):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "google/gemini-1.5-flash",
+        "model": "google/gemini-2.0-flash-exp:free",
         "messages": [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": message_content}
