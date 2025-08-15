@@ -26,7 +26,7 @@ ALLOWED_CHANNEL = int(ALLOWED_CHANNEL)
 
 # Gemini APIの設定
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5闪')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Brave Search APIの関数（スニペットとURL取得）
 def search_brave(query):
@@ -118,12 +118,12 @@ async def on_message(message):
 
         # Geminiに渡すプロンプトを構築（スニペット＋スクレイピング結果）
         search_summary_prompt = (
-            f"以下は「{query}」に関する検索結果のスニペットとウェブページの内容です。\n\n"
+            f"以下は「{query}」に関する最新の検索結果のスニペットとウェブページの内容です。\n\n"
             f"### 検索スニペット ###\n"
             + "\n\n".join(snippets)
             + "\n\n### ウェブページの内容 ###\n"
             + "\n\n".join(scraped_contents)
-            + "\n\nこれらの情報をもとに、簡潔に内容をまとめてください。"
+            + "\n\nこれらの最新の情報をもとに、簡潔に内容をまとめてください。"
         )
 
         try:
