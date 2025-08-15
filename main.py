@@ -28,7 +28,7 @@ ALLOWED_CHANNEL = int(ALLOWED_CHANNEL)
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Brave Search APIの関数
+# Brave Search APIの関数（スニペット付き）
 def search_brave(query):
     url = "https://api.search.brave.com/res/v1/web/search"
     headers = {
@@ -42,7 +42,13 @@ def search_brave(query):
     response = requests.get(url, headers=headers, params=params)
     if response.status_code == 200:
         results = response.json().get("web", {}).get("results", [])
-        return [f"{r['title']}: {r['url']}" for r in results]
+        formatted = []
+        for r in results:
+            title = r.get("title", "No title")
+            url = r.get("url", "No URL")
+            desc = r.get("description", "No description")
+            formatted.append(f"■ {title}\n{desc}\n🔗 {url}")
+        return formatted
     else:
         return [f"検索エラー: {response.status_code}"]
 
@@ -66,7 +72,19 @@ async def on_message(message):
         query = content[len("!search "):]
         async with message.channel.typing():
             results = search_brave(query)
-            await message.channel.send("\n".join(results))
+
+            # Geminiに渡すプロンプトを構築（スニペット付き）
+            search_summary_prompt = (
+                f"以下は「{query}」に関する検索結果です。\n"
+                + "\n\n".join(results)
+                + "\n\nこれらの情報をもとに、簡潔に内容をまとめてください。"
+            )
+
+            try:
+                response = model.generate_content(search_summary_prompt)
+                await message.channel.send(response.text)
+            except Exception as e:
+                await message.channel.send(f"要約中にエラーが発生しました: {str(e)}")
     else:
         try:
             async with message.channel.typing():
