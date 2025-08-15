@@ -35,9 +35,8 @@ def search_brave(query):
         "Accept": "application/json",
         "X-Subscription-Token": BRAVE_API_KEY
     }
-    # 最新情報を優先（過去24時間の結果）
     params = {
-        "q": query + " 最新",  # クエリに「最新」を追加
+        "q": query + " 最新",
         "count": 3,
         "freshness": "pd"  # 過去24時間以内の結果
     }
@@ -73,7 +72,6 @@ def scrape_url(url):
         response = requests.get(url, headers=headers, timeout=5)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # ニュースサイト向けセレクタ
             if "yahoo.co.jp" in url:
                 content = soup.find("div", class_="article_body")
             elif "nhk.or.jp" in url:
@@ -116,16 +114,17 @@ async def on_message(message):
         scraped_contents = []
         for url in urls[:2]:
             content = scrape_url(url)
-            scraped_contents.append(f"{content}")
+            scraped_contents.append(content)
 
-        # 自然な応答を生成するプロンプト
+        # プロンプトをf-stringの外で構築してバックスラッシュ問題を回避
+        combined_content = "\n\n".join(snippets + scraped_contents)
         search_summary_prompt = (
-            f"以下の情報は「{query}」に関する最新の検索結果とウェブページの内容です。\n\n"
-            f"{'\n\n'.join(snippets + scraped_contents)}\n\n"
+            "以下の情報は「{}」に関する最新の検索結果とウェブページの内容です。\n\n"
+            "{}\n\n"
             "この情報を基に、ユーザーに直接話しかけるような自然な日本語で、簡潔に要点をまとめてください。"
             "プロンプトや「スニペット」「ウェブページの内容」などの内部的な言葉は使わず、"
             "まるで友人に話すようにカジュアルでわかりやすく説明してください。"
-        )
+        ).format(query, combined_content)
 
         try:
             response = model.generate_content(search_summary_prompt)
