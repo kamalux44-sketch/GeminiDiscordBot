@@ -31,3 +31,9 @@ async def on_message(message):
     except Exception as e:
         await message.channel.send(f"エラーが発生しました: {str(e)}")
     await bot.process_commands(message)
+
+# Botの起動処理を追加
+if __name__ == "__main__":
+    if not DISCORD_TOKEN:
+        raise ValueError("DISCORD_TOKEN is not set")
+    bot.run(DISCORD_TOKEN)
