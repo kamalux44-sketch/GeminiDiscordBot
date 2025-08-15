@@ -1,139 +1,109 @@
+import os
+import requests
 import discord
 from discord.ext import commands
-import google.generativeai as genai
-import requests
-from bs4 import BeautifulSoup
-import os
 
-print("✅ main.py が開始しました")
+# 環境変数読み込み
+DISCORD_TOKEN      = os.getenv("DISCORD_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+BRAVE_API_KEY      = os.getenv("BRAVE_API_KEY")
+# 通知を許可するチャンネルID（整数）
+ALLOWED_CHANNEL    = int(os.getenv("ALLOWED_CHANNEL", 0))
 
-# 環境変数の取得とチェック
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
-ALLOWED_CHANNEL = os.getenv("ALLOWED_CHANNEL")
+# OpenRouter (Gemini) に問い合わせて要約を取得
+def query_openrouter(prompt: str) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "google/gemini-2.0-flash-exp:free",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "あなたは日本語でフレンドリーかつ簡潔に要点をまとめるアシスタントです。"
+                    "ユーザーに直接話しかける自然な文体で回答してください。"
+                )
+            },
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.6,
+        "top_p": 0.9,
+        "max_tokens": 700
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    if resp.status_code == 429:
+        raise RuntimeError("429: Rate limit or free tier limit reached")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
+    data = resp.json()
+    choices = data.get("choices", [])
+    if not choices:
+        raise RuntimeError(f"No choices in response: {data}")
+    return choices[0]["message"]["content"]
 
-if not DISCORD_TOKEN:
-    raise ValueError("❌ DISCORD_TOKEN が設定されていません")
-if not GEMINI_API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY が設定されていません")
-if not BRAVE_API_KEY:
-    raise ValueError("❌ BRAVE_API_KEY が設定されていません")
-if not ALLOWED_CHANNEL:
-    raise ValueError("❌ ALLOWED_CHANNEL が設定されていません")
-
-ALLOWED_CHANNEL = int(ALLOWED_CHANNEL)
-
-# Gemini APIの設定
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-# Brave Search APIの関数（スニペットとURL取得）
-def search_brave(query):
+# Brave Search で上位3件を取得
+def search_brave(query: str) -> str:
     url = "https://api.search.brave.com/res/v1/web/search"
     headers = {
         "Accept": "application/json",
-        "X-Subscription-Token": BRAVE_API_KEY
+        "Content-Type": "application/json",
+        "X-API-Key": BRAVE_API_KEY
     }
     params = {
-        "q": query + " 最新",
-        "count": 3,
-        "freshness": "pd"  # 過去24時間以内の結果
+        "q": query,
+        "size": 3
     }
-    try:
-        response = requests.get(url, headers=headers, params=params)
-        print(f"Brave API レスポンスステータス: {response.status_code}")
-        print(f"Brave API レスポンスボディ: {response.text}")
-        if response.status_code == 200:
-            results = response.json().get("web", {}).get("results", [])
-            if not results:
-                return ["最新の検索結果が見つかりませんでした。"], []
-            formatted = []
-            urls = []
-            for r in results:
-                title = r.get("title", "タイトルなし")
-                url = r.get("url", "URLなし")
-                desc = r.get("description", "説明なし")
-                formatted.append(f"■ {title}\n{desc}\n🔗 {url}")
-                urls.append(url)
-            return formatted, urls
-        else:
-            return [f"検索エラー: {response.status_code} - {response.text}"], []
-    except Exception as e:
-        print(f"Brave API リクエストエラー: {str(e)}")
-        return [f"検索エラー: {str(e)}"], []
+    resp = requests.get(url, headers=headers, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    results = data.get("web", [])
+    snippets = []
+    for i, item in enumerate(results, start=1):
+        title   = item.get("title", "No Title")
+        snippet = item.get("snippet", "No snippet available")
+        url     = item.get("url", "")
+        snippets.append(f"{i}. {title}\n{snippet}\n{url}")
+    return "\n\n".join(snippets)
 
-# URLからコンテンツをスクレイピングする関数
-def scrape_url(url):
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            if "yahoo.co.jp" in url:
-                content = soup.find("div", class_="article_body")
-            elif "nhk.or.jp" in url:
-                content = soup.find("div", class_="content--body")
-            else:
-                content = soup.find_all("p")
-            content = content.get_text().strip() if content else "コンテンツが見つかりませんでした。"
-            return content[:3000]
-        else:
-            return f"URLの取得エラー: {response.status_code}"
-    except Exception as e:
-        return f"スクレイピングエラー: {str(e)}"
-
-# Discordボットの設定
+# Bot 定義
 intents = discord.Intents.default()
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f'✅ ボットが {bot.user} として準備完了')
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print("------")
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user or message.channel.id != ALLOWED_CHANNEL:
+@bot.command(name="ask")
+async def ask(ctx: commands.Context, *, question: str):
+    # チャンネル制限
+    if ALLOWED_CHANNEL and ctx.channel.id != ALLOWED_CHANNEL:
         return
 
-    content = message.content.strip()
+    await ctx.trigger_typing()
 
-    if not content:
-        return
+    try:
+        # 1) Brave で検索
+        search_results = search_brave(question)
+        # 2) 要約生成
+        combined_prompt = (
+            f"以下はウェブ検索の結果です：\n\n{search_results}\n\n"
+            f"上記を踏まえて、次の質問に日本語で簡潔に答えてください。\n"
+            f"{question}"
+        )
+        summary = query_openrouter(combined_prompt)
+        # 3) レスポンス送信
+        await ctx.reply(summary, mention_author=False)
 
-    async with message.channel.typing():
-        if content.startswith("!find "):
-            query = content[len("!find "):]
-        else:
-            query = content
+    except Exception as e:
+        await ctx.reply(f"エラーが発生しました: {e}", mention_author=False)
 
-        snippets, urls = search_brave(query)
-        scraped_contents = []
-        for url in urls[:2]:
-            content = scrape_url(url)
-            scraped_contents.append(content)
-
-        # プロンプトをf-stringの外で構築してバックスラッシュ問題を回避
-        combined_content = "\n\n".join(snippets + scraped_contents)
-        search_summary_prompt = (
-            "以下の情報は「{}」に関する最新の検索結果とウェブページの内容です。\n\n"
-            "{}\n\n"
-            "この情報を基に、ユーザーに直接話しかけるような自然な日本語で、簡潔に要点をまとめてください。"
-            "プロンプトや「スニペット」「ウェブページの内容」などの内部的な言葉は使わず、"
-            "まるで友人に話すようにカジュアルでわかりやすく説明してください。"
-        ).format(query, combined_content)
-
-        try:
-            response = model.generate_content(search_summary_prompt)
-            await message.channel.send(response.text[:2000])
-        except Exception as e:
-            await message.channel.send(f"ごめん、情報をまとめるのに失敗しちゃった... エラー: {str(e)}")
-
-    await bot.process_commands(message)
-
-# ボットの起動処理
 if __name__ == "__main__":
+    if not all([DISCORD_TOKEN, OPENROUTER_API_KEY, BRAVE_API_KEY]):
+        raise RuntimeError("環境変数が不足しています。DISCORD_TOKEN, OPENROUTER_API_KEY, BRAVE_API_KEY を設定してください。")
     bot.run(DISCORD_TOKEN)
