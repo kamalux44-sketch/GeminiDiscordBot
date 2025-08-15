@@ -5,11 +5,35 @@ import asyncio
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 ALLOWED_CHANNEL = os.getenv("ALLOWED_CHANNEL")  # チャンネルID（文字列）
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
+
+async def search_brave(query):
+    url = f"https://api.search.brave.com/res/v1/web/search?q={query}"
+    headers = {
+        "Accept": "application/json",
+        "X-Subscription-Token": BRAVE_API_KEY
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                results = data.get("web", {}).get("results", [])
+                snippets = []
+                for item in results[:5]:  # 上位5件を取得
+                    title = item.get("title", "")
+                    snippet = item.get("description", "")
+                    url = item.get("url", "")
+                    snippets.append(f"🔗 {title}\n{snippet}\n{url}")
+                return "\n\n".join(snippets)
+            else:
+                error_text = await resp.text()
+                return f"❌ Brave API Error: {resp.status}\n{error_text}"
 
 async def query_gemini(message_content):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -47,7 +71,15 @@ async def on_message(message):
         return
 
     await message.channel.typing()
-    response = await query_gemini(message.content)
+
+    if message.content.startswith("!ask "):
+        query = message.content[5:].strip()
+        search_results = await search_brave(query)
+        prompt = f"以下はBrave Searchの検索結果です。これらを要約して、ユーザーの質問に答えてください：\n\n{search_results}"
+        response = await query_gemini(prompt)
+    else:
+        response = await query_gemini(message.content)
+
     await message.channel.send(response)
 
 client.run(DISCORD_TOKEN)
