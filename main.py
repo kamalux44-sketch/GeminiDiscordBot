@@ -1,11 +1,10 @@
-# main.py
 import discord
 from discord.ext import commands
 import google.generativeai as genai
 import requests
 import os
 
-print("✅ main.py has started")
+print("✅ main.py が開始しました")
 
 # 環境変数の取得とチェック
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -14,13 +13,13 @@ BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 ALLOWED_CHANNEL = os.getenv("ALLOWED_CHANNEL")
 
 if not DISCORD_TOKEN:
-    raise ValueError("❌ DISCORD_TOKEN is not set")
+    raise ValueError("❌ DISCORD_TOKEN が設定されていません")
 if not GEMINI_API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY is not set")
+    raise ValueError("❌ GEMINI_API_KEY が設定されていません")
 if not BRAVE_API_KEY:
-    raise ValueError("❌ BRAVE_API_KEY is not set")
+    raise ValueError("❌ BRAVE_API_KEY が設定されていません")
 if not ALLOWED_CHANNEL:
-    raise ValueError("❌ ALLOWED_CHANNEL is not set")
+    raise ValueError("❌ ALLOWED_CHANNEL が設定されていません")
 
 ALLOWED_CHANNEL = int(ALLOWED_CHANNEL)
 
@@ -39,18 +38,26 @@ def search_brave(query):
         "q": query,
         "count": 3
     }
-    response = requests.get(url, headers=headers, params=params)
-    if response.status_code == 200:
-        results = response.json().get("web", {}).get("results", [])
-        formatted = []
-        for r in results:
-            title = r.get("title", "No title")
-            url = r.get("url", "No URL")
-            desc = r.get("description", "No description")
-            formatted.append(f"■ {title}\n{desc}\n🔗 {url}")
-        return formatted
-    else:
-        return [f"検索エラー: {response.status_code}"]
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        print(f"Brave API レスポンスステータス: {response.status_code}")
+        print(f"Brave API レスポンスボディ: {response.text}")
+        if response.status_code == 200:
+            results = response.json().get("web", {}).get("results", [])
+            if not results:
+                return ["検索結果がありませんでした。"]
+            formatted = []
+            for r in results:
+                title = r.get("title", "タイトルなし")
+                url = r.get("url", "URLなし")
+                desc = r.get("description", "説明なし")
+                formatted.append(f"■ {title}\n{desc}\n🔗 {url}")
+            return formatted
+        else:
+            return [f"検索エラー: {response.status_code} - {response.text}"]
+    except Exception as e:
+        print(f"Brave API リクエストエラー: {str(e)}")
+        return [f"検索エラー: {str(e)}"]
 
 # Discordボットの設定
 intents = discord.Intents.default()
@@ -59,7 +66,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot is ready as {bot.user}')
+    print(f'✅ ボットが {bot.user} として準備完了')
 
 @bot.event
 async def on_message(message):
@@ -68,16 +75,16 @@ async def on_message(message):
 
     content = message.content.strip()
 
-    if content.startswith("!search "):
-        query = content[len("!search "):]
+    if content.startswith("!find "):  # コマンドを !search から !find に変更
+        query = content[len("!find "):]
         async with message.channel.typing():
             results = search_brave(query)
 
             # Geminiに渡すプロンプトを構築（スニペット付き）
             search_summary_prompt = (
-                f"以下は「{query}」に関する検索結果です。\n"
+                f"以下は「{query}」に関する最新の検索結果です。\n"
                 + "\n\n".join(results)
-                + "\n\nこれらの情報をもとに、簡潔に内容をまとめてください。"
+                + "\n\nこれらの最新の情報をもとに、簡潔に内容をまとめてください。"
             )
 
             try:
@@ -95,6 +102,6 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# Botの起動処理
+# ボットの起動処理
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
