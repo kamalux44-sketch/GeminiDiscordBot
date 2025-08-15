@@ -62,7 +62,7 @@ async def ask(ctx, *, prompt: str):
     try:
         res = openai.ChatCompletion.create(
             model="google/gemini-2.0-flash-experimental",
-            messages=[{"role":"user","content":prompt}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=800
         )
@@ -72,11 +72,12 @@ async def ask(ctx, *, prompt: str):
 
     await ctx.send(answer)
 
+# ────────────────────────────────────────────────────────────
 # コマンド: !search <クエリ>
 @bot.command(name="search")
 @is_allowed_channel()
 async def search(ctx, *, query: str):
-    """Brave Searchで取得した結果をGeminiで要約する"""
+    """Brave Search で取得した結果を Gemini で要約する"""
     await ctx.trigger_typing()
 
     # 1) Brave Search 実行
@@ -99,7 +100,7 @@ async def search(ctx, *, query: str):
     try:
         res = openai.ChatCompletion.create(
             model="google/gemini-2.0-flash-experimental",
-            messages=[{"role":"user","content":summary_prompt}],
+            messages=[{"role": "user", "content": summary_prompt}],
             temperature=0.2,
             max_tokens=500
         )
