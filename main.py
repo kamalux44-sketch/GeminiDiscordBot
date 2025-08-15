@@ -35,9 +35,11 @@ def search_brave(query):
         "Accept": "application/json",
         "X-Subscription-Token": BRAVE_API_KEY
     }
+    # 最新情報を優先（過去24時間の結果）
     params = {
-        "q": query,
-        "count": 3
+        "q": query + " 最新",  # クエリに「最新」を追加
+        "count": 3,
+        "freshness": "pd"  # 過去24時間以内の結果
     }
     try:
         response = requests.get(url, headers=headers, params=params)
@@ -46,7 +48,7 @@ def search_brave(query):
         if response.status_code == 200:
             results = response.json().get("web", {}).get("results", [])
             if not results:
-                return ["検索結果がありませんでした。"], []
+                return ["最新の検索結果が見つかりませんでした。"], []
             formatted = []
             urls = []
             for r in results:
@@ -71,11 +73,15 @@ def scrape_url(url):
         response = requests.get(url, headers=headers, timeout=5)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # 本文を抽出（例: <p>タグや記事本文のセレクタを調整）
-            paragraphs = soup.find_all('p')
-            content = ' '.join([para.get_text().strip() for para in paragraphs])
-            # 文字数制限（例: 3000文字以内に制限）
-            return content[:3000] if content else "コンテンツが見つかりませんでした。"
+            # ニュースサイト向けセレクタ
+            if "yahoo.co.jp" in url:
+                content = soup.find("div", class_="article_body")
+            elif "nhk.or.jp" in url:
+                content = soup.find("div", class_="content--body")
+            else:
+                content = soup.find_all("p")
+            content = content.get_text().strip() if content else "コンテンツが見つかりませんでした。"
+            return content[:3000]
         else:
             return f"URLの取得エラー: {response.status_code}"
     except Exception as e:
@@ -101,36 +107,31 @@ async def on_message(message):
         return
 
     async with message.channel.typing():
-        # !find コマンドの場合
         if content.startswith("!find "):
             query = content[len("!find "):]
         else:
-            query = content  # すべてのメッセージを検索クエリとして扱う
+            query = content
 
-        # Brave Search APIで検索
         snippets, urls = search_brave(query)
-
-        # URLからコンテンツを取得
         scraped_contents = []
-        for url in urls[:2]:  # 最大2つのURLをスクレイピング（負荷軽減のため）
+        for url in urls[:2]:
             content = scrape_url(url)
-            scraped_contents.append(f"URL: {url}\n{content}\n")
+            scraped_contents.append(f"{content}")
 
-        # Geminiに渡すプロンプトを構築（スニペット＋スクレイピング結果）
+        # 自然な応答を生成するプロンプト
         search_summary_prompt = (
-            f"以下は「{query}」に関する最新の検索結果のスニペットとウェブページの内容です。\n\n"
-            f"### 検索スニペット ###\n"
-            + "\n\n".join(snippets)
-            + "\n\n### ウェブページの内容 ###\n"
-            + "\n\n".join(scraped_contents)
-            + "\n\nこれらの最新の情報をもとに、簡潔に内容をまとめてください。"
+            f"以下の情報は「{query}」に関する最新の検索結果とウェブページの内容です。\n\n"
+            f"{'\n\n'.join(snippets + scraped_contents)}\n\n"
+            "この情報を基に、ユーザーに直接話しかけるような自然な日本語で、簡潔に要点をまとめてください。"
+            "プロンプトや「スニペット」「ウェブページの内容」などの内部的な言葉は使わず、"
+            "まるで友人に話すようにカジュアルでわかりやすく説明してください。"
         )
 
         try:
             response = model.generate_content(search_summary_prompt)
-            await message.channel.send(response.text[:2000])  # Discordのメッセージ文字数制限対応
+            await message.channel.send(response.text[:2000])
         except Exception as e:
-            await message.channel.send(f"要約中にエラーが発生しました: {str(e)}")
+            await message.channel.send(f"ごめん、情報をまとめるのに失敗しちゃった... エラー: {str(e)}")
 
     await bot.process_commands(message)
 
