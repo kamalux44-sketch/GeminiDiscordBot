@@ -1,14 +1,28 @@
+# main.py
 import discord
 from discord.ext import commands
 import google.generativeai as genai
 import requests
 import os
 
-# 環境変数の取得
+print("✅ main.py has started")
+
+# 環境変数の取得とチェック
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
-ALLOWED_CHANNEL = int(os.getenv("ALLOWED_CHANNEL"))
+ALLOWED_CHANNEL = os.getenv("ALLOWED_CHANNEL")
+
+if not DISCORD_TOKEN:
+    raise ValueError("❌ DISCORD_TOKEN is not set")
+if not GEMINI_API_KEY:
+    raise ValueError("❌ GEMINI_API_KEY is not set")
+if not BRAVE_API_KEY:
+    raise ValueError("❌ BRAVE_API_KEY is not set")
+if not ALLOWED_CHANNEL:
+    raise ValueError("❌ ALLOWED_CHANNEL is not set")
+
+ALLOWED_CHANNEL = int(ALLOWED_CHANNEL)
 
 # Gemini APIの設定
 genai.configure(api_key=GEMINI_API_KEY)
@@ -39,7 +53,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f'Bot is ready as {bot.user}')
+    print(f'✅ Bot is ready as {bot.user}')
 
 @bot.event
 async def on_message(message):
@@ -65,7 +79,4 @@ async def on_message(message):
 
 # Botの起動処理
 if __name__ == "__main__":
-    if not DISCORD_TOKEN:
-        raise ValueError("DISCORD_TOKEN is not set")
     bot.run(DISCORD_TOKEN)
-    
