@@ -1,15 +1,2 @@
-<<<<<<< HEAD
-textdiscord.py==2.3.2
+discord.py==2.3.2
 google-generativeai==0.8.2
-=======
-textdiscord.py==2.3.2
-google-generativeai==0.8.2
-
-Dockerfile:
-dockerfileFROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-CMD ["python", "main.py"]
->>>>>>> 0a144b3e5e6d5ee1abec59ed8c96341f82582846
