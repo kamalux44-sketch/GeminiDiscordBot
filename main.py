@@ -3,14 +3,17 @@ import discord
 import aiohttp
 import asyncio
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DISCORD_TOKEN      = os.getenv("DISCORD_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
-ALLOWED_CHANNEL = os.getenv("ALLOWED_CHANNEL")  # チャンネルID（文字列）
+BRAVE_API_KEY      = os.getenv("BRAVE_API_KEY")
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
+
+# メモリ上で各ギルドの返信チャンネルを保持する dict
+# { guild_id (int) : channel_id (int) }
+reply_channel_map = {}
 
 async def search_brave(query):
     url = f"https://api.search.brave.com/res/v1/web/search?q={query}"
@@ -22,18 +25,18 @@ async def search_brave(query):
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
-                data = await resp.json()
+                data    = await resp.json()
                 results = data.get("web", {}).get("results", [])
                 snippets = []
-                for item in results[:5]:  # 上位5件を取得
-                    title = item.get("title", "")
+                for item in results[:5]:
+                    title   = item.get("title", "")
                     snippet = item.get("description", "")
-                    url = item.get("url", "")
+                    url     = item.get("url", "")
                     snippets.append(f"🔗 {title}\n{snippet}\n{url}")
                 return "\n\n".join(snippets)
             else:
-                error_text = await resp.text()
-                return f"❌ Brave API Error: {resp.status}\n{error_text}"
+                err = await resp.text()
+                return f"❌ Brave API Error: {resp.status}\n{err}"
 
 async def query_gemini(message_content):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -62,8 +65,8 @@ async def query_gemini(message_content):
                 data = await resp.json()
                 return data["choices"][0]["message"]["content"]
             else:
-                error_text = await resp.text()
-                return f"❌ API Error: {resp.status}\n{error_text}"
+                err = await resp.text()
+                return f"❌ API Error: {resp.status}\n{err}"
 
 @client.event
 async def on_ready():
@@ -71,16 +74,31 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    # Bot自身の発言は無視
     if message.author.bot:
         return
 
-    if str(message.channel.id) != ALLOWED_CHANNEL:
+    guild_id   = message.guild.id
+    channel_id = message.channel.id
+
+    # 1) !channel コマンドで“応答チャンネル”を設定
+    if message.content.strip() == "!channel":
+        reply_channel_map[guild_id] = channel_id
+        await message.channel.send(
+            f"このチャンネル（ID: {channel_id}）を応答先に設定しました。"
+        )
         return
 
+    # 2) 応答チャンネルが設定されていれば、それ以外では無視
+    if guild_id in reply_channel_map and channel_id != reply_channel_map[guild_id]:
+        return
+
+    # 3) タイピングインジケーターON
     await message.channel.typing()
 
+    # 4) 検索付き or 単純問い合わせ
     if message.content.startswith("!ask "):
-        query = message.content[5:].strip()
+        query = message.content[len("!ask "):].strip()
         search_results = await search_brave(query)
         prompt = (
             f"以下はBrave Searchの検索結果です。これらを要約して、"
@@ -90,6 +108,7 @@ async def on_message(message):
     else:
         response = await query_gemini(message.content)
 
+    # 5) 設定済みチャンネルへ送信
     await message.channel.send(response)
 
 client.run(DISCORD_TOKEN)
